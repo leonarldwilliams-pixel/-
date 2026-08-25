@@ -278,19 +278,71 @@ async function handleGateTimeout(sock, groupId, userId) {
 
 const loadCommands = () => {
     global.commands.clear();
-    if (!fs.existsSync("./commands")) fs.mkdirSync("./commands", { recursive: true });
-    const files = fs.readdirSync("./commands").filter(f => f.endsWith(".js"));
-    for (const file of files) {
+
+    const commandsDir = path.join(__dirname, "commands");
+
+    if (!fs.existsSync(commandsDir)) {
+        fs.mkdirSync(commandsDir, { recursive: true });
+        console.log("📁 Created commands directory.");
+        console.log("✅ 0 Commands loaded successfully.");
+        return;
+    }
+
+    const getCommandFiles = (dir) => {
+        let results = [];
+
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+
+        for (const entry of entries) {
+            const fullPath = path.join(dir, entry.name);
+
+            if (entry.isDirectory()) {
+                results = results.concat(getCommandFiles(fullPath));
+            } else if (entry.isFile() && entry.name.endsWith(".js")) {
+                results.push(fullPath);
+            }
+        }
+
+        return results;
+    };
+
+    const files = getCommandFiles(commandsDir);
+
+    for (const fullPath of files) {
         try {
-            const fullPath = require.resolve(`./commands/${file}`);
-            delete require.cache[fullPath];
-            const cmd = require(`./commands/${file}`);
-            if (cmd.name) global.commands.set(cmd.name, cmd);
+            delete require.cache[require.resolve(fullPath)];
+
+            const cmd = require(fullPath);
+
+            if (!cmd || !cmd.name || typeof cmd.execute !== "function") {
+                console.log(
+                    `⚠️ Skipped invalid command: ${path.relative(commandsDir, fullPath)}`
+                );
+                continue;
+            }
+
+            global.commands.set(cmd.name.toLowerCase(), cmd);
+
+            if (Array.isArray(cmd.aliases)) {
+                for (const alias of cmd.aliases) {
+                    global.commands.set(alias.toLowerCase(), cmd);
+                }
+            }
+
+            console.log(
+                `✅ Loaded: ${path.relative(commandsDir, fullPath)}`
+            );
+
         } catch (e) {
-            console.log(`❌ Error loading ${file}: ${e.message}`);
+            console.log(
+                `❌ Error loading ${path.relative(commandsDir, fullPath)}: ${e.message}`
+            );
         }
     }
-    console.log(`✅ ${global.commands.size} Commands loaded successfully.`);
+
+    console.log(
+        `🚀 ${global.commands.size} command(s) loaded successfully.`
+    );
 };
 
 async function startBlackEagle() {
